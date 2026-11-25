@@ -83,6 +83,7 @@ public final class ClockRenderer {
         public int shape = 1, palette = 0, marks = 1, hands = 0, battery = 0;
         public boolean ticks = true, dateWin = false, seconds = true, verse = true;
         public String bg = "";
+        public int prayerPosition=58, prayerScale=90, clockPosition=45, clockScale=100; public int prayerOpacity=50, prayerColor, prayerText; public boolean prayerBattery=true, prayerGregorian=true, prayerHijri=true;
         public int mode, city, method; public boolean gps, ramadan; public double lat, lon;
 
         public static Style from(SharedPreferences p) {
@@ -98,6 +99,9 @@ public final class ClockRenderer {
             s.verse = p.getBoolean(KEY_VERSE, true);
             s.mode = p.getInt("theme_mode",0);
             s.city = p.getInt("prayer_city",0); s.method=p.getInt("prayer_method",0); s.gps=p.getBoolean("prayer_gps",false); s.ramadan=p.getBoolean("prayer_ramadan",false); s.lat=p.getFloat("prayer_lat",30.0444f); s.lon=p.getFloat("prayer_lon",31.2357f);
+            s.prayerPosition=p.getInt("prayer_position",58); s.prayerScale=p.getInt("prayer_scale",90); s.clockPosition=p.getInt("clock_position",45); s.clockScale=p.getInt("clock_scale",100);
+            s.prayerOpacity=p.getInt("prayer_opacity",50); s.prayerColor=p.getInt("prayer_color",0); s.prayerText=p.getInt("prayer_text",0);
+            s.prayerBattery=p.getBoolean("prayer_battery",true); s.prayerGregorian=p.getBoolean("prayer_gregorian",true); s.prayerHijri=p.getBoolean("prayer_hijri",true);
             s.bg = p.getString(KEY_BG, "");
             return s;
         }
@@ -171,7 +175,11 @@ public final class ClockRenderer {
                 Shader.TileMode.CLAMP));
         cv.drawRect(0, 0, w, h, v);
 
-        if(st.mode==1){ PrayerRenderer.draw(c,cv,w,h,st,now); return; }
+        if(st.mode==1){ PrayerRenderer.draw(c,cv,w,h,st,now,level,charging); return; }
+        cv.save();
+        float factor=Math.max(.6f,Math.min(1f,st.clockScale/100f));
+        float center=Math.max(h*.25f+w*.36f*factor,Math.min(h*.87f-w*.95f*factor,h*st.clockPosition/100f));
+        cv.translate(w/2f,center); cv.scale(factor,factor); cv.translate(-w/2f,-h*.45f);
         float R = w * 0.31f;
         float cx = w / 2f, cy = h * 0.45f;
         float ringR = R * 1.14f;
@@ -214,6 +222,7 @@ public final class ClockRenderer {
             float vy = Math.min(y + w * 0.04f, h * 0.875f);
             rtl(cv, VERSE, cx, vy, w, text(tf, w * 0.056f, GOLD));
         }
+        cv.restore();
     }
 
     static void drawCover(Canvas cv, Bitmap b, int w, int h) {

@@ -81,6 +81,7 @@ public class MainActivity extends Activity {
 
     // clock tab state
     private ImageView preview;
+    private boolean lockPreview=true; private int designSection=0; private int previewGeneration=0;
     private LinearLayout bgRow;
     private final java.util.List<Object[]> choiceRows = new java.util.ArrayList<>();
 
@@ -254,15 +255,8 @@ public class MainActivity extends Activity {
         col.setPadding(px(14), px(6), px(14), px(28));
         sv.addView(col);
         choiceRows.clear();
-        choiceRow(col, "نوع الثيم", "theme_mode", new String[]{"الساعة ذات العقارب", "مواقيت الصلاة"}, 0);
+        choiceRow(col, "نوع الثيم", "theme_mode", new String[]{"◷ الساعة ذات العقارب", "☾ مواقيت الصلاة"}, 0);
         boolean prayer = prefs.getInt("theme_mode",0)==1;
-        if(prayer) {
-            choiceRow(col,"المدينة", "prayer_city", PrayerRenderer.CITIES,0);
-            choiceRow(col,"طريقة الحساب", "prayer_method", PrayerRenderer.METHODS,0);
-            col.addView(check("رمضان: تأخير العشاء لأم القرى إلى 120 دقيقة", "prayer_ramadan",false));
-            TextView gps=label(prefs.getBoolean("prayer_gps",false)?"📍 تحديث موقعي (مفعّل)":"📍 تحديد موقعي",18,ClockRenderer.GOLD);
-            gps.setPadding(0,px(12),0,px(12)); col.addView(gps); gps.setOnClickListener(v->locate());
-        }
         col.addView(section("معاينة الثيم"));
 
         preview = new ImageView(this);
@@ -274,6 +268,26 @@ public class MainActivity extends Activity {
 
         TextView apply = label("تطبيق الثيم الحي",20,ClockRenderer.DEEP); apply.setGravity(Gravity.CENTER); apply.setPadding(0,px(12),0,px(12)); apply.setBackground(round(ClockRenderer.GOLD,20,0)); col.addView(apply,new LinearLayout.LayoutParams(-1,-2)); apply.setOnClickListener(v->activateLive());
         TextView browse=label("استعراض مكتبة الخلفيات حسب المجموعة",17,ClockRenderer.CREAM); browse.setGravity(Gravity.CENTER); browse.setPadding(0,px(12),0,px(12)); col.addView(browse); browse.setOnClickListener(v->showTab(0));
+        TextView lock=label("معاينة ساعة النظام: "+(lockPreview?"مفعّلة":"مخفية"),16,ClockRenderer.GOLD); col.addView(lock); lock.setOnClickListener(v->{lockPreview=!lockPreview;lock.setText("معاينة ساعة النظام: "+(lockPreview?"مفعّلة":"مخفية"));refreshClockUi();});
+        LinearLayout sections=new LinearLayout(this); sections.setOrientation(LinearLayout.HORIZONTAL);
+        String[] sectionNames={"المظهر","التخطيط","العناصر","الخلفية","ثيماتي"};
+        for(int j=0;j<sectionNames.length;j++){final int k=j;TextView t=label(sectionNames[j],14,designSection==j?ClockRenderer.DEEP:ClockRenderer.CREAM);t.setGravity(Gravity.CENTER);t.setPadding(0,px(12),0,px(12));t.setBackground(round(designSection==j?ClockRenderer.GOLD:ClockRenderer.NAVY,10,0));sections.addView(t,new LinearLayout.LayoutParams(0,-2,1));t.setOnClickListener(v->{designSection=k;showTab(1);});}col.addView(sections);
+        if(designSection==0){
+        if(prayer) {
+            choiceRow(col,"لون لوحة الصلاة","prayer_color",new String[]{"كحلي","أسود","زمردي","بنفسجي","بني","عاجي"},0);
+            choiceRow(col,"لون النصوص","prayer_text",new String[]{"تلقائي","ذهبي","أبيض","أسود"},0);
+            TextView opacity=label("عتامة اللوحة: "+prefs.getInt("prayer_opacity",50)+"%",16,ClockRenderer.CREAM);
+            col.addView(opacity);
+            android.widget.SeekBar slider=new android.widget.SeekBar(this);
+            slider.setMax(100); slider.setProgress(prefs.getInt("prayer_opacity",50));
+            col.addView(slider,new LinearLayout.LayoutParams(-1,-2));
+            slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
+                public void onProgressChanged(android.widget.SeekBar b,int value,boolean user){opacity.setText("عتامة اللوحة: "+value+"%"); if(user){prefs.edit().putInt("prayer_opacity",value).apply();refreshClockUi();}}
+                public void onStartTrackingTouch(android.widget.SeekBar b){}
+                public void onStopTrackingTouch(android.widget.SeekBar b){}
+            });
+
+        }
         if(!prayer) {
         choiceRow(col, "شكل الساعة", ClockRenderer.KEY_SHAPE, ClockRenderer.SHAPE_NAMES, 1);
         choiceRow(col, "لون الساعة", ClockRenderer.KEY_PALETTE, ClockRenderer.PALETTE_NAMES, 0);
@@ -282,6 +296,26 @@ public class MainActivity extends Activity {
         choiceRow(col, "عرض البطارية", ClockRenderer.KEY_BATTERY, ClockRenderer.BATTERY_NAMES, 0);
 
         }
+        }
+        if(designSection==1){
+            col.addView(section("الموقع والحجم — مساحة آمنة لساعة النظام"));
+            range(col,"الموقع الرأسي",prayer?"prayer_position":"clock_position",prayer?45:35,prayer?80:65,prayer?58:45);
+            range(col,"الحجم",prayer?"prayer_scale":"clock_scale",60,100,prayer?90:100);
+            TextView reset=label("استعادة التخطيط الافتراضي",16,ClockRenderer.GOLD);col.addView(reset);reset.setOnClickListener(v->{prefs.edit().remove("prayer_position").remove("prayer_scale").remove("clock_position").remove("clock_scale").apply();showTab(1);});
+        }
+        if(designSection==2 && prayer){
+
+            choiceRow(col,"المدينة", "prayer_city", PrayerRenderer.CITIES,0);
+            choiceRow(col,"طريقة الحساب", "prayer_method", PrayerRenderer.METHODS,0);
+            col.addView(check("رمضان: تأخير العشاء لأم القرى إلى 120 دقيقة", "prayer_ramadan",false));
+            TextView gps=label(prefs.getBoolean("prayer_gps",false)?"📍 تحديث موقعي (مفعّل)":"📍 تحديد موقعي",18,ClockRenderer.GOLD);
+            gps.setPadding(0,px(12),0,px(12)); col.addView(gps); gps.setOnClickListener(v->locate());
+            col.addView(check("إظهار مؤشر البطارية", "prayer_battery",true));
+            col.addView(check("إظهار التاريخ الميلادي", "prayer_gregorian",true));
+            col.addView(check("إظهار التاريخ الهجري", "prayer_hijri",true));
+            col.addView(check("الآية الكريمة",ClockRenderer.KEY_VERSE,true));
+        }
+        if(designSection==3){
         col.addView(section("خلفية شاشة القفل"));
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
@@ -296,7 +330,9 @@ public class MainActivity extends Activity {
         }
         col.addView(hs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        if(!prayer) {
+        } else { bgRow=new LinearLayout(this); }
+        if(designSection==4) savedThemes(col);
+        if(!prayer && designSection==2) {
         col.addView(section("إظهار وإخفاء"));
         col.addView(check("علامات الدقائق", ClockRenderer.KEY_TICKS, true));
         col.addView(check("عقرب الثواني", ClockRenderer.KEY_SECONDS, true));
@@ -323,6 +359,18 @@ public class MainActivity extends Activity {
         return sv;
     }
 
+    private void range(LinearLayout col,String title,String key,int min,int max,int def){
+        TextView t=label(title+": "+prefs.getInt(key,def)+"%",16,ClockRenderer.CREAM);col.addView(t);
+        android.widget.SeekBar b=new android.widget.SeekBar(this);b.setMax(max-min);b.setProgress(prefs.getInt(key,def)-min);col.addView(b,new LinearLayout.LayoutParams(-1,-2));
+        b.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(android.widget.SeekBar x,int n,boolean user){t.setText(title+": "+(n+min)+"%");}public void onStartTrackingTouch(android.widget.SeekBar x){}public void onStopTrackingTouch(android.widget.SeekBar x){prefs.edit().putInt(key,x.getProgress()+min).apply();refreshClockUi();}});
+    }
+    private void savedThemes(LinearLayout col){
+        SharedPreferences store=getSharedPreferences("saved_themes",MODE_PRIVATE);
+        for(int i=1;i<=3;i++){final String slot="theme"+i;TextView title=label("ثيم "+i+(store.contains(slot)?" • محفوظ":" • فارغ"),18,ClockRenderer.GOLD);col.addView(title);
+            TextView save=label("حفظ التصميم الحالي",16,ClockRenderer.CREAM);col.addView(save);save.setOnClickListener(v->{org.json.JSONObject obj=new org.json.JSONObject(prefs.getAll());store.edit().putString(slot,obj.toString()).apply();showTab(1);});
+            if(store.contains(slot)){TextView load=label("استعادة التصميم",16,ClockRenderer.GOLD);col.addView(load);load.setOnClickListener(v->{try{org.json.JSONObject obj=new org.json.JSONObject(store.getString(slot,"{}"));SharedPreferences.Editor e=prefs.edit().clear();java.util.Iterator<String> it=obj.keys();while(it.hasNext()){String k=it.next();Object val=obj.get(k);if(val instanceof Boolean)e.putBoolean(k,(Boolean)val);else if(val instanceof Integer)e.putInt(k,(Integer)val);else if(val instanceof Number)e.putFloat(k,((Number)val).floatValue());else if(val instanceof String)e.putString(k,(String)val);}e.apply();showTab(1);}catch(Exception ex){toast("تعذر استعادة الثيم");}});}
+        }
+    }
     /** A titled, horizontally scrolling row of choice chips bound to an int preference. */
     private void choiceRow(LinearLayout col, String title, String key, String[] names, int def) {
         col.addView(section(title));
@@ -407,7 +455,7 @@ public class MainActivity extends Activity {
             boolean on = st.bg.equals(c.getTag());
             c.setBackground(on ? round(0x00000000, 10, ClockRenderer.GOLD) : null);
         }
-        final ImageView target = preview;
+        final ImageView target = preview; final int generation=++previewGeneration; final boolean showSystem=lockPreview;
         pool.execute(() -> {
             int w = 540, h = 1200;
             Bitmap bgb = ClockRenderer.loadBg(this, st.bgFile(), w, h);
@@ -417,8 +465,9 @@ public class MainActivity extends Activity {
             int level=bi==null?0:Math.round(100f*bi.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,0)/Math.max(1,bi.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100)));
             int status=bi==null?0:bi.getIntExtra(android.os.BatteryManager.EXTRA_STATUS,0);
             ClockRenderer.draw(this, c, w, h, st, bgb, level, status==2 || status==5, Calendar.getInstance());
+            if(showSystem){ android.graphics.Paint pp=new android.graphics.Paint(3);pp.setColor(0xffeeeeee);pp.setTextAlign(android.graphics.Paint.Align.CENTER);pp.setTextSize(w*.12f);pp.setShadowLayer(3,0,1,0xff000000);c.drawText(new java.text.SimpleDateFormat("HH:mm",java.util.Locale.US).format(new java.util.Date()),w/2f,h*.18f,pp);pp.setTextSize(w*.025f);c.drawText("معاينة ساعة النظام",w/2f,h*.095f,pp); }
             if (bgb != null) bgb.recycle();
-            runOnUiThread(() -> target.setImageBitmap(out));
+            runOnUiThread(() -> {if(target==preview && generation==previewGeneration)target.setImageBitmap(out);else out.recycle();});
         });
     }
 
