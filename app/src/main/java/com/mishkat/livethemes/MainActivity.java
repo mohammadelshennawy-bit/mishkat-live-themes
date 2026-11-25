@@ -300,7 +300,7 @@ public class MainActivity extends Activity {
         if(designSection==1){
             col.addView(section("الموقع والحجم — مساحة آمنة لساعة النظام"));
             range(col,"الموقع الرأسي",prayer?"prayer_position":"clock_position",prayer?45:35,prayer?80:65,prayer?58:45);
-            range(col,"الحجم",prayer?"prayer_scale":"clock_scale",60,100,prayer?90:100);
+            range(col,"الحجم",prayer?"prayer_scale":"clock_scale",60,100,100);
             TextView reset=label("استعادة التخطيط الافتراضي",16,ClockRenderer.GOLD);col.addView(reset);reset.setOnClickListener(v->{prefs.edit().remove("prayer_position").remove("prayer_scale").remove("clock_position").remove("clock_scale").apply();showTab(1);});
         }
         if(designSection==2 && prayer){

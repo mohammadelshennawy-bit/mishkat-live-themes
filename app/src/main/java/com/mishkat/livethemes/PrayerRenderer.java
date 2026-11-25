@@ -38,18 +38,26 @@ final class PrayerRenderer {
   int cream=st.prayerText==0&&idx!=5?0xffffefd0:fg;
   int tile=(colors[idx]&0xffffff)|(Math.round(alpha*.35f)<<24);
   int activeColor=(0xd4ad60)|(alpha<<24);
-  float panelH=370+(st.verse?28:0)+(st.prayerBattery?30:0)+(st.prayerGregorian?24:0)+(st.prayerHijri?24:0);
-  c.save();float scale=Math.min(w/360f*Math.max(.6f,Math.min(1f,st.prayerScale/100f)),h*.62f/panelH); float top=Math.max(h*.25f,Math.min(h*.87f-panelH*scale,h*st.prayerPosition/100f-panelH*scale/2)); c.translate((w-360*scale)/2,top);c.scale(scale,scale);Paint p=new Paint(3);p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
-  rect(c,p,8,8,344,panelH-16,base);txt(c,p,"مواقيت الصلاة",180,43,24,fg);
-  rect(c,p,20,58,320,100,tile);txt(c,p,"الصلاة القادمة • "+place,180,80,14,cream);txt(c,p,N[next]+"  "+time(target,zone),180,105,20,fg);txt(c,p,countdown,180,140,28,fg);
-  txt(c,p,METHODS[method],180,181,13,cream);
-  for(int i=0;i<6;i++){float x=20+(2-i%3)*108,y=193+(i/3)*76;boolean active=i==next&&!tomorrow;int ink=active&&alpha>=180?navy:fg;rect(c,p,x,y,104,70,active?activeColor:tile);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(active?2:0.7f);rect(c,p,x,y,104,70,active?gold:0x66999999);p.setStyle(Paint.Style.FILL);txt(c,p,ICON[i],x+52,y+20,18,ink);txt(c,p,N[i],x+52,y+40,15,ink);txt(c,p,time(t[i],zone),x+52,y+60,15,ink);}
-  float y=361;
-  if(st.prayerBattery){int pct=Math.max(0,Math.min(100,level));p.setColor(fg);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.5f);c.drawRoundRect(105,y-15,147,y+1,3,3,p);p.setStyle(Paint.Style.FILL);c.drawRect(148,y-10,151,y-4,p);c.drawRect(108,y-12,108+36*pct/100f,y-2,p);txt(c,p,pct+"%"+(charging?" ⚡":""),193,y,16,fg);y+=30;}
+  // Separate objects, with a reserved top quarter and bottom shortcut area.
+  float panelH=326, batteryH=st.prayerBattery?34:0, dateH=(st.prayerGregorian||st.prayerHijri)?(st.prayerGregorian&&st.prayerHijri?54:32):0;
+  float verseH=st.verse?46:0;
+  float total=panelH+batteryH+dateH+verseH+12;
+  float scale=Math.min(w/360f*Math.max(.6f,Math.min(1f,st.prayerScale/100f)),h*.64f/total);
+  float minTop=h*.27f, maxTop=Math.max(minTop,h*.91f-total*scale);
+  float top=Math.max(minTop,Math.min(maxTop,h*st.prayerPosition/100f-panelH*scale/2));
+  c.save();c.translate((w-360*scale)/2,top);c.scale(scale,scale);Paint p=new Paint(3);p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
+  rect(c,p,3,0,354,panelH,base);txt(c,p,"مواقيت الصلاة",180,29,25,fg);
+  rect(c,p,10,39,340,84,tile);txt(c,p,"الصلاة القادمة • "+place,180,58,15,cream);txt(c,p,N[next]+"  "+time(target,zone),180,80,21,fg);
+  p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));txt(c,p,countdown,180,112,32,fg);
+  txt(c,p,METHODS[method],180,145,15,cream);
+  for(int i=0;i<6;i++){float x=9+(2-i%3)*115,y=155+(i/3)*84;boolean active=i==next&&!tomorrow;int ink=active&&alpha>=180?navy:fg;rect(c,p,x,y,112,80,active?activeColor:tile);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(active?2:0.7f);rect(c,p,x,y,112,80,active?gold:0x66999999);p.setStyle(Paint.Style.FILL);txt(c,p,ICON[i],x+56,y+22,20,ink);txt(c,p,N[i],x+56,y+45,18,ink);txt(c,p,time(t[i],zone),x+56,y+68,18,ink);}
+  float y=panelH+6;
+  if(st.prayerBattery){rect(c,p,112,y,136,28,base);int pct=Math.max(0,Math.min(100,level));p.setColor(fg);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.5f);c.drawRoundRect(126,y+7,168,y+21,3,3,p);p.setStyle(Paint.Style.FILL);c.drawRect(169,y+11,172,y+17,p);c.drawRect(129,y+10,129+36*pct/100f,y+18,p);txt(c,p,pct+"%"+(charging?" ⚡":""),207,y+20,18,fg);y+=34;}
+  if(dateH>0){rect(c,p,43,y,274,dateH-4,base);y+=20;}
   Calendar today=Calendar.getInstance(zone);
-  if(st.prayerGregorian){java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("EEEE، d MMMM yyyy",new Locale("ar","EG"));f.setTimeZone(zone);txt(c,p,f.format(today.getTime()).replace('٠','0').replace('١','1').replace('٢','2').replace('٣','3').replace('٤','4').replace('٥','5').replace('٦','6').replace('٧','7').replace('٨','8').replace('٩','9'),180,y,15,cream);y+=24;}
-  if(st.prayerHijri){android.icu.util.IslamicCalendar hc=new android.icu.util.IslamicCalendar();hc.setCalculationType(android.icu.util.IslamicCalendar.CalculationType.ISLAMIC_UMALQURA);hc.setTimeZone(android.icu.util.TimeZone.getTimeZone(zone.getID()));hc.setTimeInMillis(ms);String[] months={"محرم","صفر","ربيع الأول","ربيع الآخر","جمادى الأولى","جمادى الآخرة","رجب","شعبان","رمضان","شوال","ذو القعدة","ذو الحجة"};txt(c,p,hc.get(android.icu.util.Calendar.DAY_OF_MONTH)+" "+months[hc.get(android.icu.util.Calendar.MONTH)]+" "+hc.get(android.icu.util.Calendar.YEAR)+" هـ",180,y,15,fg);}
-  if(st.verse) txt(c,p,"اللَّهُ نُورُ السَّمَاوَاتِ وَالْأَرْضِ",180,panelH-17,16,fg);
+  if(st.prayerGregorian){java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("EEEE، d MMMM yyyy",new Locale("ar","EG"));f.setTimeZone(zone);txt(c,p,f.format(today.getTime()).replace('٠','0').replace('١','1').replace('٢','2').replace('٣','3').replace('٤','4').replace('٥','5').replace('٦','6').replace('٧','7').replace('٨','8').replace('٩','9'),180,y,17,cream);y+=23;}
+  if(st.prayerHijri){android.icu.util.IslamicCalendar hc=new android.icu.util.IslamicCalendar();hc.setCalculationType(android.icu.util.IslamicCalendar.CalculationType.ISLAMIC_UMALQURA);hc.setTimeZone(android.icu.util.TimeZone.getTimeZone(zone.getID()));hc.setTimeInMillis(ms);String[] months={"محرم","صفر","ربيع الأول","ربيع الآخر","جمادى الأولى","جمادى الآخرة","رجب","شعبان","رمضان","شوال","ذو القعدة","ذو الحجة"};txt(c,p,hc.get(android.icu.util.Calendar.DAY_OF_MONTH)+" "+months[hc.get(android.icu.util.Calendar.MONTH)]+" "+hc.get(android.icu.util.Calendar.YEAR)+" هـ",180,y,17,fg);}
+  if(st.verse){float verseTop=Math.max(panelH+batteryH+dateH+12,(h*.85f-top)/scale);verseTop=Math.min(verseTop,(h*.91f-top)/scale-42);Paint vp=ClockRenderer.text(ClockRenderer.font(ctx),25,fg);ClockRenderer.rtl(c,ClockRenderer.VERSE,180,verseTop,360,vp);}
   c.restore();
  }
 }
