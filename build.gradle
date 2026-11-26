@@ -1,3 +1,27 @@
 plugins {
-    id 'com.android.application' version '8.5.2' apply false
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mishkat.livethemes'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.mishkat.livethemes'
+        minSdk 24
+        targetSdk 34
+        versionCode 5
+        versionName '1.4.0'
+    }
+
+    buildTypes {
+        release { minifyEnabled false }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    androidResources { noCompress 'jpg', 'png', 'ttf' }
 }
