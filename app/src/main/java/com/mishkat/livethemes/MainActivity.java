@@ -10,11 +10,14 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -28,13 +31,14 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
-import android.widget.CheckBox;
 import android.widget.FrameLayout;
 import android.widget.GridView;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -45,6 +49,7 @@ import java.io.OutputStream;
 import java.util.Calendar;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.IntConsumer;
 
 public class MainActivity extends Activity {
 
@@ -65,6 +70,17 @@ public class MainActivity extends Activity {
             "الإعدادات", "الساعة", "التقويم", "الحاسبة", "المتصفح", "الملفات", "الصوتيات", "البريد",
             "الخرائط", "المتجر", "الملاحظات", "الطقس", "المصحف", "الأذكار", "القبلة", "الكشاف", "المسجل"};
 
+    // ---- navigation: one place that defines the app's menus
+    static final int TAB_DESIGN = 0, TAB_WALLS = 1, TAB_ICONS = 2, TAB_ABOUT = 3;
+    static final String[] NAV_ICONS = {"◷", "▦", "✦", "ⓘ"};
+    static final String[] NAV_NAMES = {"الثيم الحي", "الخلفيات", "الأيقونات", "حول"};
+    static final String[] DESIGN_SECTIONS = {"المظهر", "التخطيط", "العناصر", "الخلفية", "ثيماتي"};
+    static final String[] WALL_CATEGORIES = {"الكل", "الطبيعة", "إسلامية"};
+
+    // ---- palette
+    static final int MUTED = 0xFFB9AD8C;
+    static final int LINE = 0x33D9B15C;
+    static final int CARD = ClockRenderer.NAVY;
 
     private static final int REQ_STORAGE = 7;
 
@@ -75,13 +91,17 @@ public class MainActivity extends Activity {
 
     private Typeface font;
     private FrameLayout content;
-    private final TextView[] tabs = new TextView[4];
+    private final LinearLayout[] navItems = new LinearLayout[NAV_NAMES.length];
     private SharedPreferences prefs;
     private float dp;
+    private int currentTab = TAB_DESIGN;
 
-    // clock tab state
+    // design tab state
     private ImageView preview;
-    private boolean lockPreview=true; private int designSection=0; private int previewGeneration=0;
+    private LinearLayout panel;
+    private boolean lockPreview = true;
+    private int designSection = 0;
+    private int previewGeneration = 0;
     private LinearLayout bgRow;
     private final java.util.List<Object[]> choiceRows = new java.util.ArrayList<>();
 
@@ -97,44 +117,58 @@ public class MainActivity extends Activity {
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setBackgroundColor(ClockRenderer.DEEP);
 
-        // header
+        // ---- app bar
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(px(16), px(14), px(16), px(10));
+        head.setPadding(px(16), px(12), px(16), px(10));
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.logo);
-        head.addView(logo, new LinearLayout.LayoutParams(px(46), px(46)));
+        head.addView(logo, new LinearLayout.LayoutParams(px(40), px(40)));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.setPadding(px(12), 0, px(12), 0);
-        titles.addView(label("مشكاة – ثيمات الهاتف", 26, ClockRenderer.GOLD));
-        titles.addView(label("مشكاة · برمجيات نافعة للهاتف والحاسب", 14, 0xFFB9AD8C));
+        titles.addView(label("مشكاة – ثيمات الهاتف", 21, ClockRenderer.GOLD));
+        titles.addView(label("مشكاة · برمجيات نافعة للهاتف والحاسب", 12.5f, MUTED));
         head.addView(titles);
         root.addView(head);
+        root.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, px(1))));
 
-        // tabs
-        LinearLayout tabRow = new LinearLayout(this);
-        tabRow.setOrientation(LinearLayout.HORIZONTAL);
-        tabRow.setPadding(px(8), 0, px(8), px(6));
-        String[] names = {"الخلفيات", "صمّم ثيمك", "الأيقونات", "حقوق الصور"};
-        for (int i = 0; i < 4; i++) {
-            final int idx = i;
-            TextView t = label(names[i], 17, ClockRenderer.CREAM);
-            t.setGravity(Gravity.CENTER);
-            t.setPadding(0, px(8), 0, px(8));
-            t.setOnClickListener(v -> showTab(idx));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
-            lp.setMargins(px(3), 0, px(3), 0);
-            tabRow.addView(t, lp);
-            tabs[i] = t;
-        }
-        root.addView(tabRow);
-
+        // ---- page content
         content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+
+        // ---- bottom navigation
+        root.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, px(1))));
+        LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.HORIZONTAL);
+        nav.setBackgroundColor(0xFF0B1A40);
+        nav.setPadding(px(6), px(6), px(6), px(8));
+        for (int i = 0; i < NAV_NAMES.length; i++) {
+            final int idx = i;
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.CENTER_HORIZONTAL);
+            item.setPadding(0, px(2), 0, px(2));
+            TextView icon = new TextView(this);
+            icon.setText(NAV_ICONS[i]);
+            icon.setTypeface(Typeface.DEFAULT);
+            icon.setTextSize(19);
+            icon.setGravity(Gravity.CENTER);
+            icon.setPadding(px(18), px(2), px(18), px(2));
+            item.addView(icon);
+            TextView name = label(NAV_NAMES[i], 13.5f, ClockRenderer.CREAM);
+            name.setGravity(Gravity.CENTER);
+            item.addView(name);
+            item.setBackground(ripple(null));
+            item.setOnClickListener(v -> showTab(idx));
+            nav.addView(item, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            navItems[i] = item;
+        }
+        root.addView(nav);
+
         setContentView(root);
-        showTab(1);
+        showTab(TAB_DESIGN);
     }
 
     @Override
@@ -143,86 +177,116 @@ public class MainActivity extends Activity {
         pool.shutdownNow();
     }
 
-    // ------------------------------------------------------------------ tabs
+    @Override
+    public void onBackPressed() {
+        if (currentTab != TAB_DESIGN) showTab(TAB_DESIGN);
+        else super.onBackPressed();
+    }
+
+    // ------------------------------------------------------------------ navigation
 
     private void showTab(int i) {
-        for (int k = 0; k < tabs.length; k++) {
-            GradientDrawable g = new GradientDrawable();
-            g.setCornerRadius(px(18));
-            if (k == i) {
-                g.setColor(ClockRenderer.GOLD);
-                tabs[k].setTextColor(ClockRenderer.DEEP);
-            } else {
-                g.setColor(0x00000000);
-                g.setStroke(px(1), 0x66D9B15C);
-                tabs[k].setTextColor(ClockRenderer.CREAM);
-            }
-            tabs[k].setBackground(g);
+        currentTab = i;
+        for (int k = 0; k < navItems.length; k++) {
+            boolean on = k == i;
+            TextView icon = (TextView) navItems[k].getChildAt(0);
+            TextView name = (TextView) navItems[k].getChildAt(1);
+            icon.setBackground(on ? round(0x33D9B15C, 16, 0) : null);
+            icon.setTextColor(on ? ClockRenderer.GOLD : MUTED);
+            name.setTextColor(on ? ClockRenderer.GOLD : MUTED);
         }
         content.removeAllViews();
         preview = null;
+        panel = null;
         switch (i) {
-            case 0: content.addView(wallpapersTab()); break;
-            case 1: content.addView(clockTab()); break;
-            case 2: content.addView(iconsTab()); break;
-            default: content.addView(creditsTab()); break;
+            case TAB_DESIGN: content.addView(designTab()); break;
+            case TAB_WALLS: content.addView(wallpapersTab()); break;
+            case TAB_ICONS: content.addView(iconsTab()); break;
+            default: content.addView(aboutTab()); break;
         }
     }
 
     // ------------------------------------------------------------------ wallpapers
 
     private int category = 0;
-    private boolean matches(int i) { return category == 0 || (category == 1 && i >= 5 && i < 26) || (category == 2 && (i < 5 || i >= 26)); }
+
+    private static boolean inCategory(int cat, int i) {
+        return cat == 0 || (cat == 1 && i >= 5 && i < 26) || (cat == 2 && (i < 5 || i >= 26));
+    }
+
     private View wallpapersTab() {
-        LinearLayout outer = new LinearLayout(this); outer.setOrientation(1);
-        LinearLayout filters = new LinearLayout(this);
-        String[] cats = {"الكل", "الطبيعة", "إسلامية"};
-        for(int k=0;k<3;k++){ final int n=k; TextView t=label(cats[k],18,category==k?ClockRenderer.DEEP:ClockRenderer.CREAM); t.setGravity(Gravity.CENTER); t.setPadding(0,px(10),0,px(10)); t.setBackground(round(category==k?ClockRenderer.GOLD:ClockRenderer.NAVY,12,0)); filters.addView(t,new LinearLayout.LayoutParams(0,-2,1)); t.setOnClickListener(v->{category=n;showTab(0);}); }
-        outer.addView(filters);
-        java.util.ArrayList<Integer> ids=new java.util.ArrayList<>(); for(int i=0;i<WALLS.length;i++) if(matches(i)) ids.add(i);
+        LinearLayout outer = new LinearLayout(this);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setPadding(px(16), 0, px(16), 0);
+        pageHeader(outer, "مكتبة الخلفيات", WALLS.length + " خلفية · اضغط على أي خلفية لمعاينتها وتعيينها");
+
+        String[] cats = new String[WALL_CATEGORIES.length];
+        for (int k = 0; k < cats.length; k++) {
+            int n = 0;
+            for (int i = 0; i < WALLS.length; i++) if (inCategory(k, i)) n++;
+            cats[k] = WALL_CATEGORIES[k] + "  " + n;
+        }
+        outer.addView(segmented(cats, category, 15.5f, n -> { category = n; showTab(TAB_WALLS); }), matchWrap(0));
+
+        java.util.ArrayList<Integer> ids = new java.util.ArrayList<>();
+        for (int i = 0; i < WALLS.length; i++) if (inCategory(category, i)) ids.add(i);
         GridView g = new GridView(this);
         g.setNumColumns(2);
-        g.setPadding(px(8), px(6), px(8), px(16));
+        g.setPadding(0, px(12), 0, px(16));
         g.setClipToPadding(false);
-        g.setVerticalSpacing(px(10));
-        g.setHorizontalSpacing(px(8));
+        g.setVerticalSpacing(px(12));
+        g.setHorizontalSpacing(px(10));
+        g.setSelector(new android.graphics.drawable.ColorDrawable(0));
         g.setAdapter(new BaseAdapter() {
             public int getCount() { return ids.size(); }
             public Object getItem(int p) { return WALLS[ids.get(p)]; }
             public long getItemId(int p) { return p; }
             public View getView(int p, View v, ViewGroup parent) {
-                p = ids.get(p);
-                LinearLayout cell = new LinearLayout(MainActivity.this);
-                cell.setOrientation(LinearLayout.VERTICAL);
+                int w = ids.get(p);
+                FrameLayout cell = new FrameLayout(MainActivity.this);
+                cell.setBackground(round(ClockRenderer.BLUE, 14, 0));
+                cell.setClipToOutline(true);
                 AspectImage img = new AspectImage(MainActivity.this, 2400f / 1080f);
                 img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-                img.setBackground(round(0xFF17336E, 10, 0));
-                img.setClipToOutline(true);
-                loadThumb("thumbs/" + WALLS[p], img);
+                loadThumb("thumbs/" + WALLS[w], img);
                 cell.addView(img);
-                TextView t = label(WALL_NAMES[p], 13, ClockRenderer.CREAM);
+                TextView t = label(WALL_NAMES[w], 13.5f, 0xFFFFFFFF);
                 t.setGravity(Gravity.CENTER);
-                cell.addView(t);
+                t.setSingleLine(true);
+                t.setPadding(px(6), px(22), px(6), px(8));
+                t.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                        new int[]{0xD9000000, 0x00000000}));
+                cell.addView(t, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
                 return cell;
             }
         });
         g.setOnItemClickListener((parent, view, pos, id) -> previewWall(ids.get(pos)));
-        outer.addView(g,new LinearLayout.LayoutParams(-1,0,1)); return outer;
+        outer.addView(g, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        return outer;
     }
 
     private void previewWall(int pos) {
-        ImageView img = new ImageView(this); img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        img.setImageBitmap(ClockRenderer.loadBg(this,WALLS[pos],540,1000));
-        LinearLayout box = new LinearLayout(this); box.setOrientation(1); box.addView(img,new LinearLayout.LayoutParams(-1,px(340)));
+        ImageView img = new ImageView(this);
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        img.setImageBitmap(ClockRenderer.loadBg(this, WALLS[pos], 540, 1000));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(img, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(340)));
         new AlertDialog.Builder(this).setTitle(WALL_NAMES[pos]).setView(box)
-          .setPositiveButton("تصميم ساعة",(d,w)->{prefs.edit().putString(ClockRenderer.KEY_BG,WALLS[pos]).apply();showTab(1);})
-          .setNeutralButton("خلفية ثابتة",(d,w)->chooseTarget(pos)).setNegativeButton("رجوع",null).show();
+                .setPositiveButton("استخدامها في الثيم الحي", (d, w) -> {
+                    prefs.edit().putString(ClockRenderer.KEY_BG, WALLS[pos]).apply();
+                    designSection = 3;
+                    showTab(TAB_DESIGN);
+                })
+                .setNeutralButton("خلفية ثابتة", (d, w) -> chooseTarget(pos))
+                .setNegativeButton("إغلاق", null).show();
     }
 
     private void chooseTarget(int pos) {
         String[] opts = {"الشاشة الرئيسية", "شاشة القفل", "الشاشتان معًا"};
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(WALL_NAMES[pos])
+                .setTitle("تعيين «" + WALL_NAMES[pos] + "» على")
                 .setItems(opts, (d, which) -> {
                     int flags = which == 0 ? WallpaperManager.FLAG_SYSTEM
                             : which == 1 ? WallpaperManager.FLAG_LOCK
@@ -245,154 +309,294 @@ public class MainActivity extends Activity {
         });
     }
 
-    // ------------------------------------------------------------------ clock
+    // ------------------------------------------------------------------ live theme designer
 
-    private View clockTab() {
+    private View designTab() {
         ScrollView sv = new ScrollView(this);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setGravity(Gravity.CENTER_HORIZONTAL);
-        col.setPadding(px(14), px(6), px(14), px(28));
+        col.setPadding(px(16), 0, px(16), px(28));
         sv.addView(col);
-        choiceRows.clear();
-        choiceRow(col, "نوع الثيم", "theme_mode", new String[]{"◷ الساعة ذات العقارب", "☾ مواقيت الصلاة"}, 0);
-        boolean prayer = prefs.getInt("theme_mode",0)==1;
-        col.addView(section("معاينة الثيم"));
 
+        pageHeader(col, "صمّم ثيمك الحي", "اختر نوع الثيم وخصّصه، ثم فعّله على شاشة القفل");
+
+        // 1) theme type
+        col.addView(segmented(new String[]{"◷  ساعة بعقارب", "☾  مواقيت الصلاة"},
+                prefs.getInt("theme_mode", 0), 16, i -> {
+                    prefs.edit().putInt("theme_mode", i).apply();
+                    rebuildPanel();
+                    refreshClockUi();
+                }), matchWrap(0));
+
+        // 2) live preview
         preview = new ImageView(this);
         preview.setBackground(round(0xFF05070C, 22, 0));
         preview.setClipToOutline(true);
+        preview.setElevation(px(6));
         preview.setScaleType(ImageView.ScaleType.FIT_XY);
         int pw = Math.round(getResources().getDisplayMetrics().widthPixels * 0.56f);
-        col.addView(preview, new LinearLayout.LayoutParams(pw, Math.round(pw * 2400f / 1080f)));
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(pw, Math.round(pw * 2400f / 1080f));
+        plp.gravity = Gravity.CENTER_HORIZONTAL;
+        plp.setMargins(0, px(16), 0, px(8));
+        col.addView(preview, plp);
 
-        TextView apply = label("تطبيق الثيم الحي",20,ClockRenderer.DEEP); apply.setGravity(Gravity.CENTER); apply.setPadding(0,px(12),0,px(12)); apply.setBackground(round(ClockRenderer.GOLD,20,0)); col.addView(apply,new LinearLayout.LayoutParams(-1,-2)); apply.setOnClickListener(v->activateLive());
-        TextView browse=label("استعراض مكتبة الخلفيات حسب المجموعة",17,ClockRenderer.CREAM); browse.setGravity(Gravity.CENTER); browse.setPadding(0,px(12),0,px(12)); col.addView(browse); browse.setOnClickListener(v->showTab(0));
-        TextView lock=label("معاينة ساعة النظام: "+(lockPreview?"مفعّلة":"مخفية"),16,ClockRenderer.GOLD); col.addView(lock); lock.setOnClickListener(v->{lockPreview=!lockPreview;lock.setText("معاينة ساعة النظام: "+(lockPreview?"مفعّلة":"مخفية"));refreshClockUi();});
-        LinearLayout sections=new LinearLayout(this); sections.setOrientation(LinearLayout.HORIZONTAL);
-        String[] sectionNames={"المظهر","التخطيط","العناصر","الخلفية","ثيماتي"};
-        for(int j=0;j<sectionNames.length;j++){final int k=j;TextView t=label(sectionNames[j],14,designSection==j?ClockRenderer.DEEP:ClockRenderer.CREAM);t.setGravity(Gravity.CENTER);t.setPadding(0,px(12),0,px(12));t.setBackground(round(designSection==j?ClockRenderer.GOLD:ClockRenderer.NAVY,10,0));sections.addView(t,new LinearLayout.LayoutParams(0,-2,1));t.setOnClickListener(v->{designSection=k;showTab(1);});}col.addView(sections);
-        if(designSection==0){
-        if(prayer) {
-            choiceRow(col,"لون لوحة الصلاة","prayer_color",new String[]{"كحلي","أسود","زمردي","بنفسجي","بني","عاجي"},0);
-            choiceRow(col,"لون النصوص","prayer_text",new String[]{"تلقائي","ذهبي","أبيض","أسود"},0);
-            TextView opacity=label("عتامة اللوحة: "+prefs.getInt("prayer_opacity",50)+"%",16,ClockRenderer.CREAM);
-            col.addView(opacity);
-            android.widget.SeekBar slider=new android.widget.SeekBar(this);
-            slider.setMax(100); slider.setProgress(prefs.getInt("prayer_opacity",50));
-            col.addView(slider,new LinearLayout.LayoutParams(-1,-2));
-            slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){
-                public void onProgressChanged(android.widget.SeekBar b,int value,boolean user){opacity.setText("عتامة اللوحة: "+value+"%"); if(user){prefs.edit().putInt("prayer_opacity",value).apply();refreshClockUi();}}
-                public void onStartTrackingTouch(android.widget.SeekBar b){}
-                public void onStopTrackingTouch(android.widget.SeekBar b){}
-            });
+        TextView sys = label("", 14, MUTED);
+        sys.setGravity(Gravity.CENTER);
+        sys.setPadding(px(14), px(6), px(14), px(6));
+        sys.setBackground(ripple(round(0x00000000, 16, LINE, 1)));
+        Runnable sysText = () -> sys.setText((lockPreview ? "◉" : "○") + "  إظهار ساعة النظام في المعاينة");
+        sysText.run();
+        sys.setOnClickListener(v -> { lockPreview = !lockPreview; sysText.run(); refreshClockUi(); });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        slp.gravity = Gravity.CENTER_HORIZONTAL;
+        col.addView(sys, slp);
 
-        }
-        if(!prayer) {
-        choiceRow(col, "شكل الساعة", ClockRenderer.KEY_SHAPE, ClockRenderer.SHAPE_NAMES, 1);
-        choiceRow(col, "لون الساعة", ClockRenderer.KEY_PALETTE, ClockRenderer.PALETTE_NAMES, 0);
-        choiceRow(col, "علامات الساعات", ClockRenderer.KEY_MARKS, ClockRenderer.MARK_NAMES, 1);
-        choiceRow(col, "شكل العقارب", ClockRenderer.KEY_HANDS, ClockRenderer.HAND_NAMES, 0);
-        choiceRow(col, "عرض البطارية", ClockRenderer.KEY_BATTERY, ClockRenderer.BATTERY_NAMES, 0);
+        // 3) actions
+        col.addView(primaryButton("تفعيل على شاشة القفل", v -> activateLive()), matchWrap(14));
+        TextView hint = label("بعد التفعيل تظهر أي تعديلات هنا على شاشة القفل مباشرة.", 13, MUTED);
+        hint.setGravity(Gravity.CENTER);
+        col.addView(hint, matchWrap(6));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.addView(outlineButton("▦  مكتبة الخلفيات", v -> showTab(TAB_WALLS)), weighted(0, 4));
+        actions.addView(outlineButton("ⓘ  طريقة التفعيل", v -> showActivationHelp()), weighted(4, 0));
+        col.addView(actions, matchWrap(10));
 
-        }
-        }
-        if(designSection==1){
-            col.addView(section("الموقع والحجم — مساحة آمنة لساعة النظام"));
-            range(col,"الموقع الرأسي",prayer?"prayer_position":"clock_position",prayer?45:35,prayer?80:65,prayer?58:45);
-            range(col,"الحجم",prayer?"prayer_scale":"clock_scale",60,100,100);
-            TextView reset=label("استعادة التخطيط الافتراضي",16,ClockRenderer.GOLD);col.addView(reset);reset.setOnClickListener(v->{prefs.edit().remove("prayer_position").remove("prayer_scale").remove("clock_position").remove("clock_scale").apply();showTab(1);});
-        }
-        if(designSection==2 && prayer){
+        // 4) customisation sections
+        TextView h = label("خيارات التخصيص", 18, ClockRenderer.GOLD);
+        col.addView(h, matchWrap(20));
+        col.addView(segmented(DESIGN_SECTIONS, designSection, 14.5f, k -> { designSection = k; rebuildPanel(); refreshClockUi(); }), matchWrap(8));
 
-            choiceRow(col,"المدينة", "prayer_city", PrayerRenderer.CITIES,0);
-            choiceRow(col,"طريقة الحساب", "prayer_method", PrayerRenderer.METHODS,0);
-            col.addView(check("رمضان: تأخير العشاء لأم القرى إلى 120 دقيقة", "prayer_ramadan",false));
-            TextView gps=label(prefs.getBoolean("prayer_gps",false)?"📍 تحديث موقعي (مفعّل)":"📍 تحديد موقعي",18,ClockRenderer.GOLD);
-            gps.setPadding(0,px(12),0,px(12)); col.addView(gps); gps.setOnClickListener(v->locate());
-            col.addView(check("إظهار مؤشر البطارية", "prayer_battery",true));
-            col.addView(check("إظهار التاريخ الميلادي", "prayer_gregorian",true));
-            col.addView(check("إظهار التاريخ الهجري", "prayer_hijri",true));
-            col.addView(check("الآية الكريمة",ClockRenderer.KEY_VERSE,true));
-        }
-        if(designSection==3){
-        col.addView(section("خلفية شاشة القفل"));
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        bgRow = new LinearLayout(this);
-        bgRow.setOrientation(LinearLayout.HORIZONTAL);
-        hs.addView(bgRow);
-        addBgChoice("", "تلقائي");
-        addBgChoice(ClockRenderer.BG_BLACK, "أسود");
-        for (int i = 0; i < WALLS.length; i++) {
-            if (WALLS[i].startsWith("02-") || WALLS[i].startsWith("03-")) continue;
-            addBgChoice(WALLS[i], WALL_NAMES[i]);
-        }
-        col.addView(hs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        } else { bgRow=new LinearLayout(this); }
-        if(designSection==4) savedThemes(col);
-        if(!prayer && designSection==2) {
-        col.addView(section("إظهار وإخفاء"));
-        col.addView(check("علامات الدقائق", ClockRenderer.KEY_TICKS, true));
-        col.addView(check("عقرب الثواني", ClockRenderer.KEY_SECONDS, true));
-        col.addView(check("نافذة التاريخ داخل الساعة", ClockRenderer.KEY_DATEWIN, false));
-        col.addView(check("الآية الكريمة", ClockRenderer.KEY_VERSE, true));
-
-        }
-        TextView go = label("تفعيل ثيم شاشة القفل", 20, ClockRenderer.DEEP);
-        go.setGravity(Gravity.CENTER);
-        go.setBackground(round(ClockRenderer.GOLD, 26, 0));
-        go.setPadding(px(10), px(12), px(10), px(12));
-        go.setOnClickListener(v -> activateLive());
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        glp.setMargins(0, px(14), 0, px(8));
-        col.addView(go, glp);
-
-        TextView note = label("ستفتح شاشة معاينة النظام: اضغط «تعيين خلفية» واختر «شاشة القفل» إن ظهر لك الاختيار. "
-                + "أي تغيير تجريه هنا بعد التفعيل يظهر على شاشة القفل مباشرة دون إعادة التفعيل. "
-                + "ساعة الهاتف الأصلية تظل ظاهرة أعلى الشاشة، ويمكنك تصغيرها من إعدادات شاشة القفل. "
-                + "إخفاء عقرب الثواني يقلّل استهلاك البطارية.", 14, 0xFFB9AD8C);
-        col.addView(note);
-
+        panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        col.addView(panel, matchWrap(0));
+        rebuildPanel();
         refreshClockUi();
         return sv;
     }
 
-    private void range(LinearLayout col,String title,String key,int min,int max,int def){
-        TextView t=label(title+": "+prefs.getInt(key,def)+"%",16,ClockRenderer.CREAM);col.addView(t);
-        android.widget.SeekBar b=new android.widget.SeekBar(this);b.setMax(max-min);b.setProgress(prefs.getInt(key,def)-min);col.addView(b,new LinearLayout.LayoutParams(-1,-2));
-        b.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(android.widget.SeekBar x,int n,boolean user){t.setText(title+": "+(n+min)+"%");}public void onStartTrackingTouch(android.widget.SeekBar x){}public void onStopTrackingTouch(android.widget.SeekBar x){prefs.edit().putInt(key,x.getProgress()+min).apply();refreshClockUi();}});
-    }
-    private void savedThemes(LinearLayout col){
-        SharedPreferences store=getSharedPreferences("saved_themes",MODE_PRIVATE);
-        for(int i=1;i<=3;i++){final String slot="theme"+i;TextView title=label("ثيم "+i+(store.contains(slot)?" • محفوظ":" • فارغ"),18,ClockRenderer.GOLD);col.addView(title);
-            TextView save=label("حفظ التصميم الحالي",16,ClockRenderer.CREAM);col.addView(save);save.setOnClickListener(v->{org.json.JSONObject obj=new org.json.JSONObject(prefs.getAll());store.edit().putString(slot,obj.toString()).apply();showTab(1);});
-            if(store.contains(slot)){TextView load=label("استعادة التصميم",16,ClockRenderer.GOLD);col.addView(load);load.setOnClickListener(v->{try{org.json.JSONObject obj=new org.json.JSONObject(store.getString(slot,"{}"));SharedPreferences.Editor e=prefs.edit().clear();java.util.Iterator<String> it=obj.keys();while(it.hasNext()){String k=it.next();Object val=obj.get(k);if(val instanceof Boolean)e.putBoolean(k,(Boolean)val);else if(val instanceof Integer)e.putInt(k,(Integer)val);else if(val instanceof Number)e.putFloat(k,((Number)val).floatValue());else if(val instanceof String)e.putString(k,(String)val);}e.apply();showTab(1);}catch(Exception ex){toast("تعذر استعادة الثيم");}});}
+    /** Rebuilds only the options of the selected section, keeping the preview and scroll position. */
+    private void rebuildPanel() {
+        if (panel == null) return;
+        panel.removeAllViews();
+        choiceRows.clear();
+        bgRow = new LinearLayout(this);
+        boolean prayer = prefs.getInt("theme_mode", 0) == 1;
+
+        switch (designSection) {
+            case 0: // appearance
+                if (prayer) {
+                    LinearLayout c = card(panel, "ألوان اللوحة");
+                    choiceRow(c, "لون اللوحة", "prayer_color", new String[]{"كحلي", "أسود", "زمردي", "بنفسجي", "بني", "عاجي"}, 0);
+                    choiceRow(c, "لون النصوص", "prayer_text", new String[]{"تلقائي", "ذهبي", "أبيض", "أسود"}, 0);
+                    range(c, "عتامة اللوحة", "prayer_opacity", 0, 100, 50, true);
+                } else {
+                    LinearLayout c = card(panel, "هيئة الساعة");
+                    choiceRow(c, "الشكل", ClockRenderer.KEY_SHAPE, ClockRenderer.SHAPE_NAMES, 1);
+                    choiceRow(c, "الألوان", ClockRenderer.KEY_PALETTE, ClockRenderer.PALETTE_NAMES, 0);
+                    LinearLayout d = card(panel, "تفاصيل الميناء");
+                    choiceRow(d, "علامات الساعات", ClockRenderer.KEY_MARKS, ClockRenderer.MARK_NAMES, 1);
+                    choiceRow(d, "شكل العقارب", ClockRenderer.KEY_HANDS, ClockRenderer.HAND_NAMES, 0);
+                    LinearLayout e = card(panel, "مؤشر البطارية");
+                    choiceRow(e, "طريقة العرض", ClockRenderer.KEY_BATTERY, ClockRenderer.BATTERY_NAMES, 0);
+                }
+                break;
+
+            case 1: { // layout
+                LinearLayout c = card(panel, "الموقع والحجم");
+                c.addView(muted("اترك مساحة أعلى الشاشة لساعة النظام."));
+                range(c, "الموقع الرأسي", prayer ? "prayer_position" : "clock_position",
+                        prayer ? 45 : 35, prayer ? 80 : 65, prayer ? 58 : 45, false);
+                range(c, "الحجم", prayer ? "prayer_scale" : "clock_scale", 60, 100, 100, false);
+                c.addView(outlineButton("↺  استعادة التخطيط الافتراضي", v -> {
+                    prefs.edit().remove("prayer_position").remove("prayer_scale")
+                            .remove("clock_position").remove("clock_scale").apply();
+                    rebuildPanel();
+                    refreshClockUi();
+                }), matchWrap(12));
+                break;
+            }
+
+            case 2: // elements
+                if (prayer) {
+                    LinearLayout c = card(panel, "الموقع وطريقة الحساب");
+                    choiceRow(c, "المدينة", "prayer_city", PrayerRenderer.CITIES, 0);
+                    c.addView(outlineButton(prefs.getBoolean("prayer_gps", false)
+                            ? "📍  تحديث موقعي (مفعّل)" : "📍  تحديد موقعي تلقائيًا", v -> locate()), matchWrap(10));
+                    choiceRow(c, "طريقة الحساب", "prayer_method", PrayerRenderer.METHODS, 0);
+                    toggle(c, "رمضان: تأخير العشاء لأم القرى إلى 120 دقيقة", "prayer_ramadan", false);
+                    LinearLayout d = card(panel, "ما يظهر على الشاشة");
+                    toggle(d, "مؤشر البطارية", "prayer_battery", true);
+                    toggle(d, "التاريخ الميلادي", "prayer_gregorian", true);
+                    toggle(d, "التاريخ الهجري", "prayer_hijri", true);
+                    toggle(d, "الآية الكريمة", ClockRenderer.KEY_VERSE, true);
+                } else {
+                    LinearLayout d = card(panel, "ما يظهر على الشاشة");
+                    toggle(d, "علامات الدقائق", ClockRenderer.KEY_TICKS, true);
+                    toggle(d, "عقرب الثواني", ClockRenderer.KEY_SECONDS, true);
+                    toggle(d, "نافذة التاريخ داخل الساعة", ClockRenderer.KEY_DATEWIN, false);
+                    toggle(d, "الآية الكريمة", ClockRenderer.KEY_VERSE, true);
+                    d.addView(muted("إخفاء عقرب الثواني يقلّل استهلاك البطارية."));
+                }
+                break;
+
+            case 3: { // background
+                LinearLayout c = card(panel, "خلفية الثيم");
+                c.addView(muted("اختر خلفية الساعة، أو تصفّح المكتبة كاملة من «الخلفيات»."));
+                HorizontalScrollView hs = new HorizontalScrollView(this);
+                hs.setHorizontalScrollBarEnabled(false);
+                hs.addView(bgRow);
+                addBgChoice("", "تلقائي");
+                addBgChoice(ClockRenderer.BG_BLACK, "أسود");
+                for (int i = 0; i < WALLS.length; i++) {
+                    if (WALLS[i].startsWith("02-") || WALLS[i].startsWith("03-")) continue;
+                    addBgChoice(WALLS[i], WALL_NAMES[i]);
+                }
+                c.addView(hs, matchWrap(8));
+                break;
+            }
+
+            default:
+                savedThemes(panel);
+                break;
         }
     }
+
+    private void showActivationHelp() {
+        new AlertDialog.Builder(this)
+                .setTitle("طريقة التفعيل")
+                .setMessage("١. اضغط «تفعيل على شاشة القفل».\n"
+                        + "٢. ستفتح شاشة معاينة النظام: اضغط «تعيين خلفية» واختر «شاشة القفل» إن ظهر لك الاختيار.\n"
+                        + "٣. أي تغيير تجريه هنا بعد التفعيل يظهر على شاشة القفل مباشرة دون إعادة التفعيل.\n\n"
+                        + "ساعة الهاتف الأصلية تظل ظاهرة أعلى الشاشة، ويمكنك تصغيرها من إعدادات شاشة القفل.\n"
+                        + "إخفاء عقرب الثواني يقلّل استهلاك البطارية.")
+                .setPositiveButton("فهمت", null)
+                .show();
+    }
+
+    private void range(LinearLayout parent, String title, String key, int min, int max, int def, boolean live) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(label(title, 15, ClockRenderer.CREAM), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView val = label(prefs.getInt(key, def) + "%", 14, ClockRenderer.GOLD);
+        val.setPadding(px(10), px(2), px(10), px(2));
+        val.setBackground(round(0x26D9B15C, 10, 0));
+        row.addView(val);
+        parent.addView(row, matchWrap(12));
+
+        SeekBar bar = new SeekBar(this);
+        bar.setMax(max - min);
+        bar.setProgress(prefs.getInt(key, def) - min);
+        bar.setProgressTintList(ColorStateList.valueOf(ClockRenderer.GOLD));
+        bar.setThumbTintList(ColorStateList.valueOf(ClockRenderer.GOLD));
+        parent.addView(bar, matchWrap(4));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar x, int n, boolean user) {
+                val.setText((n + min) + "%");
+                if (live && user) { prefs.edit().putInt(key, n + min).apply(); refreshClockUi(); }
+            }
+            public void onStartTrackingTouch(SeekBar x) { }
+            public void onStopTrackingTouch(SeekBar x) {
+                prefs.edit().putInt(key, x.getProgress() + min).apply();
+                refreshClockUi();
+            }
+        });
+    }
+
+    private void savedThemes(LinearLayout parent) {
+        SharedPreferences store = getSharedPreferences("saved_themes", MODE_PRIVATE);
+        LinearLayout c = card(parent, "ثيماتي المحفوظة");
+        c.addView(muted("احفظ حتى ثلاثة تصاميم، واستعد أيًّا منها بلمسة واحدة."));
+        for (int i = 1; i <= 3; i++) {
+            final String slot = "theme" + i;
+            final int n = i;
+            boolean has = store.contains(slot);
+            if (i > 1) c.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, px(1))));
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, px(10), 0, px(10));
+            LinearLayout info = new LinearLayout(this);
+            info.setOrientation(LinearLayout.VERTICAL);
+            info.addView(label("الثيم " + i, 16, ClockRenderer.CREAM));
+            info.addView(label(has ? "● محفوظ" : "○ فارغ", 13, has ? ClockRenderer.GOLD : MUTED));
+            row.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            TextView save = smallButton("حفظ", false);
+            save.setOnClickListener(v -> {
+                if (!store.contains(slot)) { saveTheme(store, slot); return; }
+                new AlertDialog.Builder(this).setTitle("استبدال الثيم " + n + "؟")
+                        .setMessage("سيُحفظ التصميم الحالي مكان التصميم المحفوظ في هذه الخانة.")
+                        .setPositiveButton("استبدال", (d, w) -> saveTheme(store, slot))
+                        .setNegativeButton("إلغاء", null).show();
+            });
+            row.addView(save);
+            if (has) {
+                TextView load = smallButton("استعادة", true);
+                LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                llp.setMarginStart(px(8));
+                load.setOnClickListener(v -> restoreTheme(store, slot));
+                row.addView(load, llp);
+            }
+            c.addView(row);
+        }
+    }
+
+    private void saveTheme(SharedPreferences store, String slot) {
+        org.json.JSONObject obj = new org.json.JSONObject(prefs.getAll());
+        store.edit().putString(slot, obj.toString()).apply();
+        toast("تم حفظ التصميم ✓");
+        rebuildPanel();
+    }
+
+    private void restoreTheme(SharedPreferences store, String slot) {
+        try {
+            org.json.JSONObject obj = new org.json.JSONObject(store.getString(slot, "{}"));
+            SharedPreferences.Editor e = prefs.edit().clear();
+            java.util.Iterator<String> it = obj.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                Object val = obj.get(k);
+                if (val instanceof Boolean) e.putBoolean(k, (Boolean) val);
+                else if (val instanceof Integer) e.putInt(k, (Integer) val);
+                else if (val instanceof Number) e.putFloat(k, ((Number) val).floatValue());
+                else if (val instanceof String) e.putString(k, (String) val);
+            }
+            e.apply();
+            toast("تمت استعادة التصميم ✓");
+            showTab(TAB_DESIGN);
+        } catch (Exception ex) {
+            toast("تعذّر استعادة الثيم");
+        }
+    }
+
     /** A titled, horizontally scrolling row of choice chips bound to an int preference. */
-    private void choiceRow(LinearLayout col, String title, String key, String[] names, int def) {
-        col.addView(section(title));
+    private void choiceRow(LinearLayout parent, String title, String key, String[] names, int def) {
+        parent.addView(label(title, 15, ClockRenderer.CREAM), matchWrap(12));
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < names.length; i++) {
             final int val = i;
-            TextView t = label(names[i], 15, ClockRenderer.CREAM);
+            TextView t = label(names[i], 14.5f, ClockRenderer.CREAM);
             t.setGravity(Gravity.CENTER);
-            t.setPadding(px(14), px(8), px(14), px(8));
+            t.setPadding(px(14), px(7), px(14), px(7));
             t.setOnClickListener(v -> {
-                SharedPreferences.Editor edit=prefs.edit().putInt(key,val); if(key.equals("prayer_city")) edit.putBoolean("prayer_gps",false); edit.apply();
-                if(key.equals("theme_mode") || key.equals("prayer_city")) showTab(1); else refreshClockUi();
+                SharedPreferences.Editor edit = prefs.edit().putInt(key, val);
+                if (key.equals("prayer_city")) edit.putBoolean("prayer_gps", false);
+                edit.apply();
+                if (key.equals("prayer_city")) rebuildPanel();
+                refreshClockUi();
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(px(4), 0, px(4), 0);
+            lp.setMarginEnd(px(8));
             row.addView(t, lp);
         }
         hs.addView(row);
-        col.addView(hs, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        parent.addView(hs, matchWrap(6));
         choiceRows.add(new Object[]{key, row, def});
     }
 
@@ -404,7 +608,7 @@ public class MainActivity extends Activity {
         ImageView img = new ImageView(this);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         img.setClipToOutline(true);
-        img.setBackground(round(ClockRenderer.BG_BLACK.equals(file) ? 0xFF000000 : ClockRenderer.NAVY, 8, 0));
+        img.setBackground(round(ClockRenderer.BG_BLACK.equals(file) ? 0xFF000000 : ClockRenderer.BLUE, 8, 0));
         if (file.isEmpty()) img.setImageResource(R.drawable.logo);
         else if (!ClockRenderer.BG_BLACK.equals(file)) loadThumb("thumbs/" + file, img);
         cell.addView(img, new LinearLayout.LayoutParams(px(64), px(110)));
@@ -418,22 +622,27 @@ public class MainActivity extends Activity {
             refreshClockUi();
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(px(3), 0, px(3), 0);
+        lp.setMarginEnd(px(6));
         bgRow.addView(cell, lp);
     }
 
-    private CheckBox check(String text, String key, boolean def) {
-        CheckBox c = new CheckBox(this);
-        c.setText(text);
-        c.setTypeface(font);
-        c.setTextSize(16);
-        c.setTextColor(ClockRenderer.CREAM);
-        c.setChecked(prefs.getBoolean(key, def));
-        c.setOnCheckedChangeListener((b, on) -> {
+    /** An on/off row bound to a boolean preference. */
+    private void toggle(LinearLayout parent, String text, String key, boolean def) {
+        Switch s = new Switch(this);
+        s.setText(text);
+        s.setTypeface(font);
+        s.setTextSize(15.5f);
+        s.setTextColor(ClockRenderer.CREAM);
+        s.setPadding(0, px(8), 0, px(8));
+        int[][] states = {{android.R.attr.state_checked}, {}};
+        s.setThumbTintList(new ColorStateList(states, new int[]{ClockRenderer.GOLD, 0xFF8A8F9C}));
+        s.setTrackTintList(new ColorStateList(states, new int[]{0x99D9B15C, 0x55FFFFFF}));
+        s.setChecked(prefs.getBoolean(key, def));
+        s.setOnCheckedChangeListener((b, on) -> {
             prefs.edit().putBoolean(key, on).apply();
             refreshClockUi();
         });
-        return c;
+        parent.addView(s, matchWrap(4));
     }
 
     private void refreshClockUi() {
@@ -446,28 +655,45 @@ public class MainActivity extends Activity {
             for (int i = 0; i < row.getChildCount(); i++) {
                 TextView t = (TextView) row.getChildAt(i);
                 boolean on = i == sel;
-                t.setBackground(round(on ? ClockRenderer.GOLD : 0x00000000, 14, on ? 0 : 0x66D9B15C));
+                t.setBackground(round(on ? ClockRenderer.GOLD : 0x00000000, 16, on ? 0 : 0x66D9B15C, 1));
                 t.setTextColor(on ? ClockRenderer.DEEP : ClockRenderer.CREAM);
             }
         }
-        for (int i = 0; i < bgRow.getChildCount(); i++) {
-            View c = bgRow.getChildAt(i);
-            boolean on = st.bg.equals(c.getTag());
-            c.setBackground(on ? round(0x00000000, 10, ClockRenderer.GOLD) : null);
+        if (bgRow != null) {
+            for (int i = 0; i < bgRow.getChildCount(); i++) {
+                View c = bgRow.getChildAt(i);
+                boolean on = st.bg.equals(c.getTag());
+                c.setBackground(on ? round(0x00000000, 10, ClockRenderer.GOLD) : null);
+            }
         }
-        final ImageView target = preview; final int generation=++previewGeneration; final boolean showSystem=lockPreview;
+        final ImageView target = preview;
+        final int generation = ++previewGeneration;
+        final boolean showSystem = lockPreview;
         pool.execute(() -> {
             int w = 540, h = 1200;
             Bitmap bgb = ClockRenderer.loadBg(this, st.bgFile(), w, h);
             Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(out);
-            android.content.Intent bi=registerReceiver(null,new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
-            int level=bi==null?0:Math.round(100f*bi.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,0)/Math.max(1,bi.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100)));
-            int status=bi==null?0:bi.getIntExtra(android.os.BatteryManager.EXTRA_STATUS,0);
-            ClockRenderer.draw(this, c, w, h, st, bgb, level, status==2 || status==5, Calendar.getInstance());
-            if(showSystem){ android.graphics.Paint pp=new android.graphics.Paint(3);pp.setColor(0xffeeeeee);pp.setTextAlign(android.graphics.Paint.Align.CENTER);pp.setTextSize(w*.12f);pp.setShadowLayer(3,0,1,0xff000000);c.drawText(new java.text.SimpleDateFormat("HH:mm",java.util.Locale.US).format(new java.util.Date()),w/2f,h*.18f,pp);pp.setTextSize(w*.025f);c.drawText("معاينة ساعة النظام",w/2f,h*.095f,pp); }
+            Intent bi = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            int level = bi == null ? 0 : Math.round(100f * bi.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, 0)
+                    / Math.max(1, bi.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)));
+            int status = bi == null ? 0 : bi.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, 0);
+            ClockRenderer.draw(this, c, w, h, st, bgb, level, status == 2 || status == 5, Calendar.getInstance());
+            if (showSystem) {
+                android.graphics.Paint pp = new android.graphics.Paint(3);
+                pp.setColor(0xffeeeeee);
+                pp.setTextAlign(android.graphics.Paint.Align.CENTER);
+                pp.setTextSize(w * .12f);
+                pp.setShadowLayer(3, 0, 1, 0xff000000);
+                c.drawText(new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(new java.util.Date()), w / 2f, h * .18f, pp);
+                pp.setTextSize(w * .025f);
+                c.drawText("معاينة ساعة النظام", w / 2f, h * .095f, pp);
+            }
             if (bgb != null) bgb.recycle();
-            runOnUiThread(() -> {if(target==preview && generation==previewGeneration)target.setImageBitmap(out);else out.recycle();});
+            runOnUiThread(() -> {
+                if (target == preview && generation == previewGeneration) target.setImageBitmap(out);
+                else out.recycle();
+            });
         });
     }
 
@@ -480,7 +706,7 @@ public class MainActivity extends Activity {
         } catch (ActivityNotFoundException e) {
             try {
                 startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));
-                toast("اختر «ساعة مشكاة» من القائمة");
+                toast("اختر «مشكاة – خلفيات حية» من القائمة");
             } catch (ActivityNotFoundException e2) {
                 toast("هاتفك لا يدعم الخلفيات الحية");
             }
@@ -492,24 +718,22 @@ public class MainActivity extends Activity {
     private View iconsTab() {
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(px(14), px(6), px(14), 0);
-        col.addView(label("احفظ الأيقونات في معرض الصور، ثم غيّر أيقونات تطبيقاتك من مشغّل يدعم ذلك مثل Nova Launcher "
-                + "(اضغط مطوّلًا على التطبيق ← تعديل ← الصورة)، أو من تطبيق لتغيير الأيقونات.", 14, 0xFFB9AD8C));
+        col.setPadding(px(16), 0, px(16), 0);
+        pageHeader(col, "أيقونات مشكاة", ICONS.length + " أيقونة بتصميم موحّد لتطبيقاتك");
 
-        TextView save = label("حفظ الأيقونات في المعرض", 18, ClockRenderer.DEEP);
-        save.setGravity(Gravity.CENTER);
-        save.setBackground(round(ClockRenderer.GOLD, 24, 0));
-        save.setPadding(px(10), px(10), px(10), px(10));
-        save.setOnClickListener(v -> saveIconsChecked());
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.setMargins(0, px(10), 0, px(10));
-        col.addView(save, slp);
+        LinearLayout info = card(col, null);
+        ((LinearLayout.LayoutParams) info.getLayoutParams()).topMargin = 0;
+        info.addView(label("طريقة الاستخدام", 15.5f, ClockRenderer.GOLD));
+        info.addView(label("١. احفظ الأيقونات في معرض الصور.\n"
+                + "٢. من مشغّل يدعم تغيير الأيقونات مثل Nova Launcher: اضغط مطوّلًا على التطبيق ← تعديل ← الصورة.", 14, MUTED));
+        col.addView(primaryButton("حفظ الأيقونات في المعرض", v -> saveIconsChecked()), matchWrap(12));
 
         GridView g = new GridView(this);
         g.setNumColumns(4);
-        g.setVerticalSpacing(px(12));
-        g.setPadding(0, 0, 0, px(16));
+        g.setVerticalSpacing(px(14));
+        g.setPadding(0, px(16), 0, px(16));
         g.setClipToPadding(false);
+        g.setSelector(new android.graphics.drawable.ColorDrawable(0));
         g.setAdapter(new BaseAdapter() {
             public int getCount() { return ICONS.length; }
             public Object getItem(int p) { return ICONS[p]; }
@@ -520,9 +744,10 @@ public class MainActivity extends Activity {
                 cell.setGravity(Gravity.CENTER_HORIZONTAL);
                 ImageView img = new ImageView(MainActivity.this);
                 loadThumb("icons/" + ICONS[p] + ".png", img);
-                cell.addView(img, new LinearLayout.LayoutParams(px(58), px(58)));
-                TextView t = label(ICON_NAMES[p], 12, ClockRenderer.CREAM);
+                cell.addView(img, new LinearLayout.LayoutParams(px(56), px(56)));
+                TextView t = label(ICON_NAMES[p], 12.5f, ClockRenderer.CREAM);
                 t.setGravity(Gravity.CENTER);
+                t.setSingleLine(true);
                 cell.addView(t);
                 return cell;
             }
@@ -541,37 +766,69 @@ public class MainActivity extends Activity {
     }
 
     private android.location.LocationListener locationListener;
-    private android.os.Handler locationHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.os.Handler locationHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
     private void locate() {
-        if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED){
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION}, 18); return;
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 18);
+            return;
         }
-        android.location.LocationManager lm=(android.location.LocationManager)getSystemService(LOCATION_SERVICE);
-        if(locationListener!=null) lm.removeUpdates(locationListener);
-        locationListener=new android.location.LocationListener(){
-            public void onLocationChanged(android.location.Location l){
-                if(locationListener!=this)return; lm.removeUpdates(this); locationListener=null;
-                prefs.edit().putFloat("prayer_lat",(float)l.getLatitude()).putFloat("prayer_lon",(float)l.getLongitude()).putBoolean("prayer_gps",true).apply();
-                toast("تم تحديد الموقع"); showTab(1);
+        android.location.LocationManager lm = (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+        if (locationListener != null) lm.removeUpdates(locationListener);
+        locationListener = new android.location.LocationListener() {
+            public void onLocationChanged(android.location.Location l) {
+                if (locationListener != this) return;
+                lm.removeUpdates(this);
+                locationListener = null;
+                prefs.edit().putFloat("prayer_lat", (float) l.getLatitude()).putFloat("prayer_lon", (float) l.getLongitude())
+                        .putBoolean("prayer_gps", true).apply();
+                toast("تم تحديد الموقع ✓");
+                if (currentTab == TAB_DESIGN) { rebuildPanel(); refreshClockUi(); }
             }
-            public void onProviderEnabled(String p){}
-            public void onProviderDisabled(String p){}
-            public void onStatusChanged(String p,int status,Bundle extras){}
+            public void onProviderEnabled(String p) { }
+            public void onProviderDisabled(String p) { }
+            public void onStatusChanged(String p, int status, Bundle extras) { }
         };
-        boolean started=false;
-        for(String provider:new String[]{android.location.LocationManager.GPS_PROVIDER,android.location.LocationManager.NETWORK_PROVIDER}){
-            try{if(lm.isProviderEnabled(provider)){lm.requestLocationUpdates(provider,1000,0,locationListener);started=true;}}catch(Exception ignored){}
+        boolean started = false;
+        for (String provider : new String[]{android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER}) {
+            try {
+                if (lm.isProviderEnabled(provider)) {
+                    lm.requestLocationUpdates(provider, 1000, 0, locationListener);
+                    started = true;
+                }
+            } catch (Exception ignored) { }
         }
-        if(!started){locationListener=null;toast("فعّل الموقع أو اختر المدينة يدوياً");return;}
-        toast("جارٍ تحديد الموقع…"); final android.location.LocationListener pending=locationListener;
-        locationHandler.postDelayed(()->{if(locationListener==pending){lm.removeUpdates(pending);locationListener=null;toast("تعذر تحديد الموقع؛ اختر المدينة يدوياً");}},30000);
+        if (!started) { locationListener = null; toast("فعّل الموقع أو اختر المدينة يدويًا"); return; }
+        toast("جارٍ تحديد الموقع…");
+        final android.location.LocationListener pending = locationListener;
+        locationHandler.postDelayed(() -> {
+            if (locationListener == pending) {
+                lm.removeUpdates(pending);
+                locationListener = null;
+                toast("تعذّر تحديد الموقع؛ اختر المدينة يدويًا");
+            }
+        }, 30000);
     }
-    @Override protected void onStop(){super.onStop(); if(locationListener!=null){((android.location.LocationManager)getSystemService(LOCATION_SERVICE)).removeUpdates(locationListener);locationListener=null;}}
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (locationListener != null) {
+            ((android.location.LocationManager) getSystemService(LOCATION_SERVICE)).removeUpdates(locationListener);
+            locationListener = null;
+        }
+    }
 
     @Override
     public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
         super.onRequestPermissionsResult(req, perms, res);
-        if(req==18){if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED) locate(); else toast("يمكن اختيار المدينة يدوياً"); return;}
+        if (req == 18) {
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate();
+            else toast("يمكن اختيار المدينة يدويًا");
+            return;
+        }
         if (req == REQ_STORAGE && res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) saveIcons();
         else if (req == REQ_STORAGE) toast("لم يُسمح بالحفظ في الذاكرة");
     }
@@ -619,18 +876,59 @@ public class MainActivity extends Activity {
         while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
     }
 
-    // ------------------------------------------------------------------ credits
+    // ------------------------------------------------------------------ about & credits
 
-    private View creditsTab() {
+    private View aboutTab() {
         ScrollView sv = new ScrollView(this);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(px(16), px(8), px(16), px(28));
+        col.setPadding(px(16), px(16), px(16), px(28));
         sv.addView(col);
-        col.addView(section("حقوق الصور"));
-        col.addView(label("صور الطبيعة من موقع ويكيميديا كومنز، منشورة بترخيص المشاع الإبداعي "
+
+        // app identity card
+        LinearLayout id = card(col, null);
+        ((LinearLayout.LayoutParams) id.getLayoutParams()).topMargin = 0;
+        id.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.logo);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(px(72), px(72));
+        llp.topMargin = px(6);
+        id.addView(logo, llp);
+        TextView name = label("مشكاة – ثيمات الهاتف", 20, ClockRenderer.GOLD);
+        name.setGravity(Gravity.CENTER);
+        id.addView(name);
+        String version = "";
+        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception ignored) { }
+        TextView ver = label("الإصدار " + version, 13, MUTED);
+        ver.setGravity(Gravity.CENTER);
+        id.addView(ver);
+        TextView about = label("ساعة حية ذات عقارب أو مواقيت للصلاة على شاشة القفل، مع خلفيات طبيعية وإسلامية وأيقونات بتصميم موحّد.", 14, ClockRenderer.CREAM);
+        about.setGravity(Gravity.CENTER);
+        about.setPadding(0, px(8), 0, 0);
+        id.addView(about);
+
+        // contact
+        LinearLayout contact = card(col, "تواصل معنا");
+        TextView m = label("مشكاة · برمجيات نافعة للهاتف والحاسب\nhttps://mishkatapps.github.io\nmishkatapps@gmail.com", 14, ClockRenderer.CREAM);
+        Linkify.addLinks(m, Linkify.WEB_URLS | Linkify.EMAIL_ADDRESSES);
+        m.setLinkTextColor(ClockRenderer.GOLD);
+        m.setMovementMethod(LinkMovementMethod.getInstance());
+        contact.addView(m);
+
+        // design credit
+        LinearLayout design = card(col, "التصميم والخط");
+        design.addView(label("خلفيات مشكاة والأيقونات والساعات من تصميم «مشكاة».\n"
+                + "خط «أميري» – Amiri، بترخيص SIL Open Font License 1.1.", 14, MUTED));
+
+        // photo credits
+        LinearLayout photos = card(col, "حقوق الصور");
+        TextView lic = label("صور الطبيعة من موقع ويكيميديا كومنز، منشورة بترخيص المشاع الإبداعي "
                 + "«نسب المصنَّف – الترخيص بالمثل 4.0» (CC BY-SA 4.0). قُصَّت الصور لمقاس الهاتف وأضيف إليها تظليل خفيف، "
-                + "والصور المعدّلة متاحة بالترخيص نفسه.\nhttps://creativecommons.org/licenses/by-sa/4.0/", 14, 0xFFB9AD8C));
+                + "والصور المعدّلة متاحة بالترخيص نفسه.\nhttps://creativecommons.org/licenses/by-sa/4.0/", 13.5f, MUTED);
+        Linkify.addLinks(lic, Linkify.WEB_URLS);
+        lic.setLinkTextColor(ClockRenderer.GOLD);
+        lic.setMovementMethod(LinkMovementMethod.getInstance());
+        photos.addView(lic);
         try (InputStream in = getAssets().open("credits.txt")) {
             byte[] all = new byte[in.available()];
             int n = in.read(all);
@@ -638,24 +936,22 @@ public class MainActivity extends Activity {
             for (String line : lines) {
                 String[] p = line.split("\t");
                 if (p.length < 4) continue;
-                TextView t = label(p[0] + "\nالمصوّر: " + p[1] + " · " + p[2] + "\n" + p[3], 14, ClockRenderer.CREAM);
-                t.setPadding(0, px(10), 0, px(4));
-                Linkify.addLinks(t, Linkify.WEB_URLS);
-                t.setLinkTextColor(ClockRenderer.GOLD);
-                t.setMovementMethod(LinkMovementMethod.getInstance());
-                col.addView(t);
+                photos.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, px(1))));
+                LinearLayout entry = new LinearLayout(this);
+                entry.setOrientation(LinearLayout.VERTICAL);
+                entry.setPadding(0, px(8), 0, px(8));
+                entry.addView(label(p[0], 15, ClockRenderer.CREAM));
+                entry.addView(label("المصوّر: " + p[1] + " · " + p[2], 13, MUTED));
+                TextView link = label(p[3], 12, ClockRenderer.GOLD);
+                link.setTextDirection(View.TEXT_DIRECTION_LTR);
+                Linkify.addLinks(link, Linkify.WEB_URLS);
+                link.setLinkTextColor(ClockRenderer.GOLD);
+                link.setMovementMethod(LinkMovementMethod.getInstance());
+                entry.addView(link);
+                photos.addView(entry);
             }
         } catch (Exception ignored) {
         }
-        col.addView(section("الخط"));
-        col.addView(label("خط «أميري» – Amiri، ترخيص SIL Open Font License 1.1.", 14, 0xFFB9AD8C));
-        col.addView(section("تصميم وإعداد"));
-        TextView m = label("خلفيات مشكاة والأيقونات والساعات من تصميم «مشكاة».\nمشكاة · برمجيات نافعة للهاتف والحاسب\n"
-                + "https://mishkatapps.github.io\nmishkatapps@gmail.com", 14, ClockRenderer.CREAM);
-        Linkify.addLinks(m, Linkify.WEB_URLS | Linkify.EMAIL_ADDRESSES);
-        m.setLinkTextColor(ClockRenderer.GOLD);
-        m.setMovementMethod(LinkMovementMethod.getInstance());
-        col.addView(m);
         return sv;
     }
 
@@ -673,17 +969,127 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private TextView section(String s) {
-        TextView t = label(s, 19, ClockRenderer.GOLD);
-        t.setPadding(0, px(14), 0, px(6));
+    private TextView muted(String s) {
+        TextView t = label(s, 13.5f, MUTED);
+        t.setPadding(0, px(2), 0, px(2));
         return t;
     }
 
+    /** Page title + one-line description at the top of every page. */
+    private void pageHeader(LinearLayout parent, String title, String sub) {
+        TextView t = label(title, 22, ClockRenderer.CREAM);
+        t.setPadding(0, px(14), 0, 0);
+        parent.addView(t);
+        TextView s = label(sub, 13.5f, MUTED);
+        s.setPadding(0, 0, 0, px(12));
+        parent.addView(s);
+    }
+
+    /** A rounded panel that groups related settings under one heading. */
+    private LinearLayout card(LinearLayout parent, String title) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(px(16), px(12), px(16), px(14));
+        c.setBackground(round(CARD, 18, LINE, 1));
+        if (title != null) c.addView(label(title, 17, ClockRenderer.GOLD));
+        parent.addView(c, matchWrap(12));
+        return c;
+    }
+
+    /** Segmented control: equal-width options, the selected one filled in gold. */
+    private LinearLayout segmented(String[] names, int sel, float sp, IntConsumer pick) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setPadding(px(4), px(4), px(4), px(4));
+        bar.setBackground(round(CARD, 16, LINE, 1));
+        for (int i = 0; i < names.length; i++) {
+            final int idx = i;
+            TextView t = label(names[i], sp, ClockRenderer.CREAM);
+            t.setGravity(Gravity.CENTER);
+            t.setSingleLine(true);
+            t.setPadding(px(2), px(9), px(2), px(9));
+            t.setOnClickListener(v -> {
+                styleSegments(bar, idx);
+                pick.accept(idx);
+            });
+            bar.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        }
+        styleSegments(bar, sel);
+        return bar;
+    }
+
+    private void styleSegments(LinearLayout bar, int sel) {
+        for (int i = 0; i < bar.getChildCount(); i++) {
+            TextView t = (TextView) bar.getChildAt(i);
+            boolean on = i == sel;
+            t.setBackground(on ? round(ClockRenderer.GOLD, 12, 0) : ripple(null));
+            t.setTextColor(on ? ClockRenderer.DEEP : ClockRenderer.CREAM);
+        }
+    }
+
+    private TextView primaryButton(String text, View.OnClickListener click) {
+        TextView b = label(text, 18, ClockRenderer.DEEP);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(px(10), px(12), px(10), px(12));
+        b.setBackground(ripple(round(ClockRenderer.GOLD, 24, 0)));
+        b.setElevation(px(2));
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private TextView outlineButton(String text, View.OnClickListener click) {
+        TextView b = label(text, 15, ClockRenderer.GOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setSingleLine(true);
+        b.setPadding(px(8), px(10), px(8), px(10));
+        b.setBackground(ripple(round(0x00000000, 22, 0x99D9B15C, 1)));
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private TextView smallButton(String text, boolean filled) {
+        TextView b = label(text, 14, filled ? ClockRenderer.DEEP : ClockRenderer.GOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(px(16), px(6), px(16), px(6));
+        b.setBackground(ripple(filled ? round(ClockRenderer.GOLD, 16, 0) : round(0x00000000, 16, 0x99D9B15C, 1)));
+        return b;
+    }
+
+    private View divider() {
+        View v = new View(this);
+        v.setBackgroundColor(LINE);
+        return v;
+    }
+
+    private LinearLayout.LayoutParams matchWrap(int topDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = px(topDp);
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams weighted(int startDp, int endDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+        lp.setMarginStart(px(startDp));
+        lp.setMarginEnd(px(endDp));
+        return lp;
+    }
+
+    private Drawable ripple(Drawable content) {
+        GradientDrawable mask = new GradientDrawable();
+        mask.setColor(0xFFFFFFFF);
+        mask.setCornerRadius(px(16));
+        return new RippleDrawable(ColorStateList.valueOf(0x33D9B15C), content, mask);
+    }
+
     private GradientDrawable round(int fill, float radiusDp, int stroke) {
+        return round(fill, radiusDp, stroke, 2);
+    }
+
+    private GradientDrawable round(int fill, float radiusDp, int stroke, float strokeDp) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(fill);
         g.setCornerRadius(px(radiusDp));
-        if (stroke != 0) g.setStroke(px(2), stroke);
+        if (stroke != 0) g.setStroke(Math.max(1, px(strokeDp)), stroke);
         return g;
     }
 
